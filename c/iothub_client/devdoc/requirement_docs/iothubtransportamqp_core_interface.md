@@ -1,0 +1,56 @@
+# iothubtransportamqp_core_interface Requirements
+
+## Overview
+
+This is the interface that must be implemented by the AMQP transport core modules.
+
+
+## Public Interface 
+
+```c
+typedef void* AMQPTRANSPORT_DEVICE_CONFIG;
+typedef void* AMQPTRANSPORT_DEVICE_HANDLE;
+
+typedef enum AMQPTRANSPORT_ERROR
+{
+    AMQPTRANSPORT_ERROR_CONNECTION_FAILURE
+}
+
+typedef enum AMQPTRANSPORT_SEND_STATUS
+{
+    AMQPTRANSPORT_SEND_STATUS_IDLE,
+    AMQPTRANSPORT_SEND_STATUS_BUSY
+}
+
+typedef void (*ON_AMQPTRANSPORT_ERROR)(AMQPTRANSPORT_ERROR code, const void* context);
+typedef void (*ON_AMQPTRANSPORT_START_COMPLETE)(const void* context);
+typedef void (*ON_AMQPTRANSPORT_STOP_COMPLETE)(const void* context);
+
+typedef AMQPTRANSPORT_CORE_HANDLE (*FP_AMQPTRANSPORT_CREATE)(const char* iothub_host_fqdn, ON_AMQPTRANSPORT_ERROR on_error, const void* context);
+typedef void (*FP_AMQPTRANSPORT_DESTROY)(AMQPTRANSPORT_CORE_HANDLE handle);
+typedef int (*FP_AMQPTRANSPORT_START)(AMQPTRANSPORT_CORE_HANDLE handle, const xio_handle base_io, ON_AMQPTRANSPORT_START_COMPLETE on_start_complete, const void* context);
+typedef int (*FP_AMQPTRANSPORT_STOP)(AMQPTRANSPORT_CORE_HANDLE handle, ON_AMQPTRANSPORT_STOP_COMPLETE on_stop_complete, const void* context);
+typedef void (*FP_AMQPTRANSPORT_DO_WORK)(AMQPTRANSPORT_CORE_HANDLE handle);
+typedef int (*FP_AMQPTRANSPORT_SUBSCRIBE_FOR_MESSAGES)(AMQPTRANSPORT_DEVICE_HANDLE device_handle);
+typedef int (*FP_AMQPTRANSPORT_UNSUBSCRIBE_FOR_MESSAGES)(AMQPTRANSPORT_DEVICE_HANDLE device_handle);
+typedef AMQPTRANSPORT_DEVICE_HANDLE (*FP_AMQPTRANSPORT_REGISTER_DEVICE)(AMQPTRANSPORT_CORE_HANDLE handle, AMQPTRANSPORT_DEVICE_CONFIG* device_config);
+typedef int (*FP_AMQPTRANSPORT_UNREGISTER_DEVICE)(AMQPTRANSPORT_DEVICE_HANDLE device_handle);
+typedef int (*FP_AMQPTRANSPORT_GET_SEND_STATUS)(AMQPTRANSPORT_DEVICE_HANDLE device_handle, AMQPTRANSPORT_SEND_STATUS* send_status);
+typedef int (*FP_AMQPTRANSPORT_SET_OPTION)(AMQPTRANSPORT_CORE_HANDLE handle, const char* name, const void* value);
+
+struct AMQPTRANSPORT_CORE_INTERFACE_TAG
+{
+    FP_AMQPTRANSPORT_CREATE create;
+    FP_AMQPTRANSPORT_DESTROY destroy;
+    FP_AMQPTRANSPORT_START start;
+    FP_AMQPTRANSPORT_STOP stop;    
+    FP_AMQPTRANSPORT_DO_WORK do_work;
+    FP_AMQPTRANSPORT_SUBSCRIBE_FOR_MESSAGES subscribe_for_messages;
+    FP_AMQPTRANSPORT_UNSUBSCRIBE_FOR_MESSAGES unsubscribe_for_messages;
+    FP_AMQPTRANSPORT_REGISTER_DEVICE register_device;
+    FP_AMQPTRANSPORT_UNREGISTER_DEVICE unregister_device;
+    FP_AMQPTRANSPORT_GET_SEND_STATUS get_send_status;
+    FP_AMQPTRANSPORT_SET_OPTION set_option;
+} AMQPTRANSPORT_CORE_INTERFACE;
+```
+
