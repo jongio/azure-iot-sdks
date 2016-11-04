@@ -13,6 +13,7 @@ function(add_sample_directory whatIsBuilding)
 endfunction()
 
 if(${use_http})
+    add_sample_directory(iothub_client_file_download_sample)
     add_sample_directory(iothub_client_sample_http)
     add_sample_directory(iothub_client_sample_http_shared)
     if(NOT ${dont_use_uploadtoblob})
