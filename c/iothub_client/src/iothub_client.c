@@ -18,6 +18,7 @@
 #include "azure_c_shared_utility/lock.h"
 #include "azure_c_shared_utility/xlogging.h"
 #include "azure_c_shared_utility/singlylinkedlist.h"
+#include "azure_c_shared_utility/vector.h"
 
 typedef struct IOTHUB_CLIENT_INSTANCE_TAG
 {
@@ -29,6 +30,8 @@ typedef struct IOTHUB_CLIENT_INSTANCE_TAG
 #ifndef DONT_USE_UPLOADTOBLOB
     SINGLYLINKEDLIST_HANDLE savedDataToBeCleaned; /*list containing UPLOADTOBLOB_SAVED_DATA*/
 #endif
+    VECTOR_HANDLE queuedIOTHUB_CLIENT_DEVICE_TWIN_CALLBACK;
+    IOTHUB_CLIENT_DEVICE_TWIN_CALLBACK deviceTwinCallback;
 } IOTHUB_CLIENT_INSTANCE;
 
 #ifndef DONT_USE_UPLOADTOBLOB
@@ -98,6 +101,41 @@ static void garbageCollectorImpl(IOTHUB_CLIENT_INSTANCE* iotHubClientInstance)
 }
 #endif
 
+typedef struct QUEUED_IOTHUB_CLIENT_DEVICE_TWIN_CALLBACK_TAG
+{
+    DEVICE_TWIN_UPDATE_STATE update_state;
+    unsigned char* payLoad;
+    size_t size;
+    void* userContextCallback;
+}QUEUED_IOTHUB_CLIENT_DEVICE_TWIN_CALLBACK;
+
+typedef struct IOTHUB_CLIENT_INSTANCE_AND_USER_CONTEXT_TAG
+{
+    IOTHUB_CLIENT_INSTANCE* iotHubClientHandle;
+    void* userContextCallback;
+}IOTHUB_CLIENT_INSTANCE_AND_USER_CONTEXT;
+
+static void queueIOTHUB_CLIENT_DEVICE_TWIN_CALLBACK(DEVICE_TWIN_UPDATE_STATE update_state, const unsigned char* payLoad, size_t size, void* userContextCallback)
+{
+    IOTHUB_CLIENT_INSTANCE_AND_USER_CONTEXT* two = userContextCallback;
+    QUEUED_IOTHUB_CLIENT_DEVICE_TWIN_CALLBACK q;
+    q.userContextCallback = two->userContextCallback;
+    if (payLoad == NULL)
+    {
+        q.payLoad = NULL;
+        q.size = 0;
+    }
+    else
+    {
+        q.payLoad = malloc(size);
+        memcpy(q.payLoad, payLoad, size);
+        q.size = size;
+    }
+    q.update_state = update_state;
+    VECTOR_push_back(two->iotHubClientHandle->queuedIOTHUB_CLIENT_DEVICE_TWIN_CALLBACK, &q, 1);
+    free(userContextCallback);
+}
+
 static int ScheduleWork_Thread(void* threadArgument)
 {
     IOTHUB_CLIENT_INSTANCE* iotHubClientInstance = (IOTHUB_CLIENT_INSTANCE*)threadArgument;
@@ -129,6 +167,14 @@ static int ScheduleWork_Thread(void* threadArgument)
             /*Codes_SRS_IOTHUBCLIENT_01_040: [If acquiring the lock fails, IoTHubClient_LL_DoWork shall not be called.]*/
             /*no code, shall retry*/
         }
+        size_t nCallBacks = VECTOR_size(iotHubClientInstance->queuedIOTHUB_CLIENT_DEVICE_TWIN_CALLBACK);
+        for (size_t i = 0;i < nCallBacks;i++)
+        {
+            QUEUED_IOTHUB_CLIENT_DEVICE_TWIN_CALLBACK* e = VECTOR_element(iotHubClientInstance->queuedIOTHUB_CLIENT_DEVICE_TWIN_CALLBACK, i);
+            iotHubClientInstance->deviceTwinCallback(e->update_state, e->payLoad, e->size, e->userContextCallback);
+            free(e->payLoad);
+        }
+        VECTOR_clear(iotHubClientInstance->queuedIOTHUB_CLIENT_DEVICE_TWIN_CALLBACK);
         (void)ThreadAPI_Sleep(1);
     }
 
@@ -234,6 +280,8 @@ IOTHUB_CLIENT_HANDLE IoTHubClient_CreateFromConnectionString(const char* connect
                     {
                         result->ThreadHandle = NULL;
                         result->TransportHandle = NULL;
+                        result->queuedIOTHUB_CLIENT_DEVICE_TWIN_CALLBACK = VECTOR_create(sizeof(QUEUED_IOTHUB_CLIENT_DEVICE_TWIN_CALLBACK)); /*contains QUEUED_IOTHUB_CLIENT_DEVICE_TWIN_CALLBACK*/
+                        result->deviceTwinCallback = NULL;
                     }
                 }
             }
@@ -729,6 +777,9 @@ IOTHUB_CLIENT_RESULT IoTHubClient_SetOption(IOTHUB_CLIENT_HANDLE iotHubClientHan
     return result;
 }
 
+
+
+
 IOTHUB_CLIENT_RESULT IoTHubClient_SetDeviceTwinCallback(IOTHUB_CLIENT_HANDLE iotHubClientHandle, IOTHUB_CLIENT_DEVICE_TWIN_CALLBACK deviceTwinCallback, void* userContextCallback)
 {
     IOTHUB_CLIENT_RESULT result;
@@ -752,6 +803,7 @@ IOTHUB_CLIENT_RESULT IoTHubClient_SetDeviceTwinCallback(IOTHUB_CLIENT_HANDLE iot
         }
         else
         {
+            iotHubClientInstance->deviceTwinCallback = deviceTwinCallback;
             /*Codes_SRS_IOTHUBCLIENT_10_003: [** If the transport connection is shared, the thread shall be started by calling `IoTHubTransport_StartWorkerThread`. ]*/
             if ((result = StartWorkerThreadIfNeeded(iotHubClientInstance)) != IOTHUB_CLIENT_OK)
             {
@@ -762,7 +814,12 @@ IOTHUB_CLIENT_RESULT IoTHubClient_SetDeviceTwinCallback(IOTHUB_CLIENT_HANDLE iot
             else
             {
                 /*Codes_SRS_IOTHUBCLIENT_10_005: [** `IoTHubClient_LL_SetDeviceTwinCallback` shall call `IoTHubClient_LL_SetDeviceTwinCallback`, while passing the `IoTHubClient_LL handle` created by `IoTHubClient_LL_Create` along with the parameters `reportedStateCallback` and `userContextCallback`. ]*/
-                result = IoTHubClient_LL_SetDeviceTwinCallback(iotHubClientInstance->IoTHubClientLLHandle, deviceTwinCallback, userContextCallback);
+                /*userCOntextCallback needs to contain 2 things: iothubclient handle and the real user context callnback*/
+                IOTHUB_CLIENT_INSTANCE_AND_USER_CONTEXT* pushed = malloc(sizeof(IOTHUB_CLIENT_INSTANCE_AND_USER_CONTEXT));
+                pushed->iotHubClientHandle = iotHubClientInstance;
+                pushed->userContextCallback = userContextCallback;
+
+                result = IoTHubClient_LL_SetDeviceTwinCallback(iotHubClientInstance->IoTHubClientLLHandle, queueIOTHUB_CLIENT_DEVICE_TWIN_CALLBACK, pushed);
                 if (result != IOTHUB_CLIENT_OK)
                 {
                     LogError("IoTHubClient_LL_SetDeviceTwinCallback failed");
@@ -1069,3 +1126,4 @@ IOTHUB_CLIENT_RESULT IoTHubClient_UploadToBlobAsync(IOTHUB_CLIENT_HANDLE iotHubC
     return result;
 }
 #endif /*DONT_USE_UPLOADTOBLOB*/
+

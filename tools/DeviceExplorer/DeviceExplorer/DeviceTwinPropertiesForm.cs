@@ -54,10 +54,10 @@ namespace DeviceExplorer
         {
             bool isOK = await GetDeviceTwinData();
 
-            jsonRichTextBox0.Text = deviceJson;
-            jsonRichTextBox1.Text = tagsJson;
-            jsonRichTextBox2.Text = reportedPropertiesJson;
-            jsonRichTextBox3.Text = desiredPropertiesJson;
+            jsonRichTextBox0.Text = JsonConvert.SerializeObject(JsonConvert.DeserializeObject(deviceJson), Formatting.Indented);
+            jsonRichTextBox1.Text = JsonConvert.SerializeObject(JsonConvert.DeserializeObject(tagsJson), Formatting.Indented);
+            jsonRichTextBox2.Text = JsonConvert.SerializeObject(JsonConvert.DeserializeObject(reportedPropertiesJson), Formatting.Indented);
+            jsonRichTextBox3.Text = JsonConvert.SerializeObject(JsonConvert.DeserializeObject(desiredPropertiesJson), Formatting.Indented);
 
             if (runOnce)
             {
